@@ -69,6 +69,18 @@
   .ring:focus-visible{outline:none}
   .hint{text-align:center;color:var(--dim);font-size:12.5px;margin:4px 0 6px}
 
+  /* Layer chips — always readable, even when the SVG labels are hidden on narrow screens */
+  .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:10px 4px 4px}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.04);
+    border:1px solid var(--line);color:var(--dim);border-radius:99px;padding:5px 12px;
+    font:inherit;font-size:12.5px;cursor:pointer;transition:.15s}
+  .chip:hover{color:var(--ink);border-color:#443c68}
+  .chip .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .chip[aria-current="true"]{color:#1a1005;border-color:transparent;font-weight:650;
+    background:linear-gradient(100deg,#ff8c42,#ffd76a)}
+  /* On narrow screens the SVG drops its label column (viewBox is swapped in JS to match) */
+  .sunbox.narrow #labels, .sunbox.narrow #leaders{display:none}
+
   .card{
     background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
     border:1px solid var(--line);border-radius:20px;padding:22px 22px 24px;
@@ -104,8 +116,11 @@
   .g small{display:block;color:var(--dim);font-size:12px;margin-top:2px}
   input[type=range]{width:100%;accent-color:#ff8c42;height:26px}
   .depthbar{height:16px;border-radius:9px;margin:6px 0 2px;border:1px solid var(--line);
-    background:linear-gradient(90deg,#fff6d8,#ffd76a 12%,#ff8c42 35%,#ff4d3d 58%,#6b1c2e 70%,#2a1440 76%,#7fb3ff 88%,#cfe3ff)}
-  .scale{display:flex;justify-content:space-between;color:var(--dim);font:11px var(--mono);margin-bottom:8px}
+    background:linear-gradient(90deg,#fff6d8,#ffd76a 14%,#ff8c42 38%,#ff4d3d 54%,#7a1f10 60%,
+      #b8324f 68%,#8b4bd6 76%,#6f9dff 86%,#cfe3ff)}
+  .scale{position:relative;height:16px;color:var(--dim);font:11px var(--mono);margin-bottom:6px}
+  .scale span{position:absolute;top:0;white-space:nowrap}
+  .scale .s0{left:0} .scale .s1{left:60%;transform:translateX(-50%)} .scale .s2{right:0}
   .where{text-align:center;margin-top:14px;font-size:16px}
   .where b{color:var(--hot)}
   .where em{display:block;color:var(--dim);font-style:normal;font-size:14px;margin-top:4px}
@@ -155,16 +170,18 @@
     <div class="stage">
       <div>
         <div class="sunbox">
-          <svg id="sun" viewBox="0 0 420 420" role="img" aria-label="Interactive cross-section of the Sun">
+          <svg id="sun" viewBox="0 0 620 430" role="img" aria-label="Interactive cross-section of the Sun">
             <defs>
-              <radialGradient id="glow"><stop offset="0%" stop-color="#ffb347" stop-opacity=".55"/><stop offset="100%" stop-color="#ffb347" stop-opacity="0"/></radialGradient>
-              <filter id="soft"><feGaussianBlur stdDeviation="4"/></filter>
+              <radialGradient id="glow"><stop offset="55%" stop-color="#ffb347" stop-opacity=".38"/><stop offset="100%" stop-color="#ffb347" stop-opacity="0"/></radialGradient>
             </defs>
-            <circle cx="210" cy="210" r="205" fill="url(#glow)"/>
+            <circle cx="196" cy="215" r="212" fill="url(#glow)"/>
             <g id="rings"></g>
-            <g id="labels" font-size="10.5" font-family="ui-monospace,Menlo,monospace" fill="#f4efe6"></g>
+            <g id="leaders"></g>
+            <g id="labels" font-size="12" font-family="ui-monospace,Menlo,monospace"></g>
           </svg>
-          <p class="hint">Click a layer · or use <span class="kbd">↑</span> <span class="kbd">↓</span> to travel outward</p>
+          <div class="chips" id="chips"></div>
+          <p class="hint">Click a layer · or use <span class="kbd">↑</span> <span class="kbd">↓</span> to travel outward<br/>
+            <span style="opacity:.7">Thin layers drawn thicker so you can see them — the Drill tab uses true proportions.</span></p>
         </div>
       </div>
 
@@ -202,7 +219,7 @@
       </div>
 
       <div class="depthbar"></div>
-      <div class="scale"><span>CORE</span><span>SURFACE</span><span>CORONA</span></div>
+      <div class="scale"><span class="s0">CORE</span><span class="s1">↓ SURFACE</span><span class="s2">CORONA</span></div>
       <input type="range" id="slider" min="0" max="1000" value="0" aria-label="Distance from the centre of the Sun" />
 
       <p class="where">You are in the <b id="d-layer">core</b><em id="d-note"></em></p>
@@ -230,7 +247,7 @@
 
   <footer>
     Built with sunlight that left the core ~100,000 years ago. Numbers are standard solar-model ballparks — good enough to be amazed by, not to fly a probe with.<br/>
-    <strong>SUNION</strong> · <a href="https://science.nasa.gov/sun/" target="_blank" rel="noopener">NASA: The Sun</a>
+    <strong>SUNION</strong> · MIT licensed · <a href="https://science.nasa.gov/sun/" target="_blank" rel="noopener">NASA: The Sun</a>
   </footer>
 </div>
 
@@ -354,45 +371,74 @@ tabs.forEach(t=>t.addEventListener('click',()=>{
 /* ============================================================
    EXPLORE — draw the cross-section
    ============================================================ */
-const CX=210, CY=210, RPX=150;               // corona edge sits at 2.6 R -> scale so it fits
-const SCALE = 148 / 2.6;                      // px per solar radius
+const NS='http://www.w3.org/2000/svg';
+const CX=185, CY=215, LX=398;
+// Schematic radii in px — thin layers are exaggerated so they're clickable.
+const VR=[44, 86, 122, 134, 148, 160, 182];
+const LY=[50, 105, 160, 215, 270, 325, 380];
+const TH=[-70, -47, -23, 0, 23, 47, 70].map(d=>d*Math.PI/180);
+
 const svgRings=document.getElementById('rings');
+const svgLeaders=document.getElementById('leaders');
 const svgLabels=document.getElementById('labels');
+const defs=document.querySelector('#sun defs');
 let active=0;
 
-function px(r){ return r*SCALE; }
+const mk=(tag,attrs)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;};
 
-// draw outermost first so inner layers sit on top
-[...LAYERS].reverse().forEach(L=>{
-  const i=LAYERS.indexOf(L);
-  const g=document.createElementNS('http://www.w3.org/2000/svg','circle');
-  g.setAttribute('cx',CX); g.setAttribute('cy',CY); g.setAttribute('r',px(L.r1));
-  g.setAttribute('class','ring'); g.setAttribute('tabindex','0'); g.setAttribute('role','button');
-  g.setAttribute('aria-label',L.name);
-  g.dataset.i=i;
-  // gradient per layer
-  const id='grad'+i;
-  const rg=document.createElementNS('http://www.w3.org/2000/svg','radialGradient');
-  rg.setAttribute('id',id);
-  rg.innerHTML=`<stop offset="0%" stop-color="${L.fill[0]}"/><stop offset="100%" stop-color="${L.fill[1]}"/>`;
-  document.querySelector('#sun defs').appendChild(rg);
-  g.setAttribute('fill',`url(#${id})`);
-  g.setAttribute('stroke','rgba(0,0,0,.35)'); g.setAttribute('stroke-width','1');
-  g.addEventListener('click',()=>select(i));
-  g.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();select(i);} });
-  svgRings.appendChild(g);
+// Rings: draw outermost first so inner layers stack on top.
+for(let i=LAYERS.length-1;i>=0;i--){
+  const L=LAYERS[i];
+  const rg=mk('radialGradient',{id:'grad'+i});
+  rg.appendChild(mk('stop',{offset:'0%','stop-color':L.fill[0]}));
+  rg.appendChild(mk('stop',{offset:'100%','stop-color':L.fill[1]}));
+  defs.appendChild(rg);
 
-  // label on the right-hand side, at the midpoint of the layer
-  const mid=px((L.r0+L.r1)/2);
-  const t=document.createElementNS('http://www.w3.org/2000/svg','text');
-  t.setAttribute('x',CX+mid+3); t.setAttribute('y',CY-2);
-  t.setAttribute('fill', i<4 ? '#3b1d00' : '#f4efe6');
-  t.setAttribute('opacity','.85');
-  t.textContent=L.label;
-  t.dataset.i=i;
-  if(i>=4){ t.setAttribute('x', CX+mid+6); t.setAttribute('y', CY-2 - (i-3)*13); }
+  const c=mk('circle',{cx:CX,cy:CY,r:VR[i],fill:`url(#grad${i})`,class:'ring',
+    tabindex:'0',role:'button','aria-label':L.name,stroke:'rgba(0,0,0,.4)','stroke-width':1});
+  c.dataset.i=i;
+  c.addEventListener('click',()=>select(i));
+  c.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select(i);}});
+  svgRings.appendChild(c);
+}
+
+// Leader lines + labels, stacked down the right-hand side.
+LAYERS.forEach((L,i)=>{
+  const mid = i===0 ? VR[0]/2 : (VR[i-1]+VR[i])/2;
+  const px=CX+mid*Math.cos(TH[i]), py=CY+mid*Math.sin(TH[i]);
+  const g=mk('g',{class:'leader'}); g.dataset.i=i;
+  // elbow: out to the label's row, then a short horizontal run into the text
+  g.appendChild(mk('polyline',{points:`${px},${py} ${LX-34},${LY[i]} ${LX-8},${LY[i]}`,
+    fill:'none',stroke:'#fff','stroke-opacity':.35,'stroke-width':1.2,'stroke-linejoin':'round'}));
+  g.appendChild(mk('circle',{cx:px,cy:py,r:3.2,fill:'#fff','fill-opacity':.85}));
+  svgLeaders.appendChild(g);
+
+  const t=mk('text',{x:LX,y:LY[i]+4,fill:'#9a94ae',class:'lbl',cursor:'pointer'});
+  t.dataset.i=i; t.textContent=L.label;
+  t.addEventListener('click',()=>select(i));
   svgLabels.appendChild(t);
 });
+
+// Chip list — the always-legible fallback / quick nav
+const chipBox=document.getElementById('chips');
+LAYERS.forEach((L,i)=>{
+  const b=document.createElement('button');
+  b.className='chip'; b.dataset.i=i;
+  b.innerHTML=`<span class="dot" style="background:${L.fill[1]}"></span>${L.name}`;
+  b.onclick=()=>select(i);
+  chipBox.appendChild(b);
+});
+
+// The SVG reserves ~230px on the right for labels. That's dead weight on a phone,
+// so below ~520px we crop the viewBox to the disc and let the chips do the labelling.
+const sunbox=document.querySelector('.sunbox'), svgSun=document.getElementById('sun');
+function fitDiagram(){
+  const narrow = sunbox.clientWidth < 520;
+  sunbox.classList.toggle('narrow', narrow);
+  svgSun.setAttribute('viewBox', narrow ? '0 8 380 414' : '0 0 620 430');
+}
+fitDiagram();
+addEventListener('resize',fitDiagram);
 
 function select(i){
   active=(i+LAYERS.length)%LAYERS.length;
@@ -408,9 +454,21 @@ function select(i){
   document.getElementById('l-wow').innerHTML='☀️ '+L.wow;
   [...svgRings.children].forEach(c=>{
     const on = +c.dataset.i===active;
-    c.setAttribute('stroke', on ? '#fff' : 'rgba(0,0,0,.35)');
-    c.setAttribute('stroke-width', on ? '2.5' : '1');
+    c.setAttribute('stroke', on ? '#fff' : 'rgba(0,0,0,.4)');
+    c.setAttribute('stroke-width', on ? 2.5 : 1);
   });
+  [...svgLabels.children].forEach(t=>{
+    const on = +t.dataset.i===active;
+    t.setAttribute('fill', on ? '#ffd76a' : '#9a94ae');
+    t.setAttribute('font-weight', on ? 700 : 400);
+  });
+  [...svgLeaders.children].forEach(g=>{
+    const on = +g.dataset.i===active;
+    g.firstChild.setAttribute('stroke-opacity', on ? .9 : .28);
+    g.firstChild.setAttribute('stroke', on ? '#ffd76a' : '#fff');
+    g.lastChild.setAttribute('fill', on ? '#ffd76a' : '#fff');
+  });
+  [...chipBox.children].forEach(b=>b.setAttribute('aria-current', +b.dataset.i===active));
 }
 document.getElementById('next').onclick=()=>select(active+1);
 document.getElementById('prev').onclick=()=>select(active-1);
@@ -456,11 +514,18 @@ function profile(r){
   const last=PROFILE[PROFILE.length-1];
   return {T:last[1], D:last[2]};
 }
-// slider 0-700 covers r 0→1 (the interior), 700-1000 covers r 1→2.6 (the atmosphere)
-function sliderToR(v){ return v<=700 ? v/700 : 1 + (v-700)/300*1.6; }
+// The atmosphere is physically wafer-thin, so the slider stretches it:
+//   0–600  → r 0 → 1.0    (the whole interior)
+//   600–850→ r 1.0 → 1.04 (photosphere, chromosphere, transition region)
+//   850–1000→r 1.04 → 2.6 (out through the corona)
+function sliderToR(v){
+  if(v<=600) return v/600;
+  if(v<=850) return 1 + (v-600)/250*0.04;
+  return 1.04 + (v-850)/150*1.56;
+}
 
 function layerAt(r){
-  for(const L of LAYERS) if(r<=L.r1) return L;
+  for(const L of LAYERS) if(r<L.r1) return L;
   return LAYERS[LAYERS.length-1];
 }
 const NOTES=[
