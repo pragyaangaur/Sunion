@@ -4,7 +4,7 @@
 
 An interactive explainer for the seven layers of the Sun. Built for anyone who has ever looked at a textbook diagram of the Sun and felt absolutely nothing.
 
-https://pragyaangaur.github.io/Sunion/
+https://pragyaangaur.dev/Sunion/
 
 <p align="center">
 <img src="Sunion.jpeg" width="800">
